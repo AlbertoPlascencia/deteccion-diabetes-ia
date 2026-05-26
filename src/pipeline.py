@@ -2,7 +2,6 @@
 """
 Signal Lab: Pipeline de Ingeniería de Datos y Modelado Predictivo
 Origen: Refactorización limpia del núcleo analítico para la ENSANUT 2024
-Diseñado bajo estándares de producción de software.
 """
 
 import os
@@ -15,7 +14,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Componentes de Machine Learning e Infraestructura de Modelos
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold, cross_validate
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
@@ -60,20 +58,20 @@ class EnsanutDataPipeline:
         try:
             if nombre_archivo.endswith('.zip'):
                 with zipfile.ZipFile(ruta_completa, 'r') as z:
-                    # Estrategia de optimización: buscar el archivo de datos real por tamaño masivo
+                    # Buscar el archivo de datos real por tamaño masivo
                     info_archivos = sorted(z.infolist(), key=lambda x: x.file_size, reverse=True)
                     archivo_interno = info_archivos[0].filename
                     
                     with z.open(archivo_interno) as f:
                         contenido = f.read()
-                        if contenido.startswith(b'PK'): # Firma binaria de estructura Microsoft Office Excel
+                        if contenido.startswith(b'PK'):
                             df = pd.read_excel(io.BytesIO(contenido))
                         else:
                             df = pd.read_csv(io.BytesIO(contenido), encoding='latin-1', sep=None, engine='python', on_bad_lines='skip')
             else:
                 df = pd.read_csv(ruta_completa, encoding='latin-1', sep=None, engine='python', on_bad_lines='skip')
 
-            # Normalización agresiva de cabeceras (Eliminación de BOM tokens y saltos de línea)
+            # Normalización agresiva de cabeceras
             df.columns = [str(c).strip().upper().replace('Ï»¿', '').replace('ï»¿', '') for c in df.columns]
             df.columns = [re.sub(r'[^A-Z0-9_]', '', c) for c in df.columns]
             return df
@@ -123,7 +121,7 @@ class EnsanutDataPipeline:
         df_alimentos = self.cargar_datos_robusto(self.archivos['alimentos'])
         df_hemo = self.cargar_datos_robusto(self.archivos['hemoglobina'])
 
-        # Integración de Folios Homogéneos
+        # Integración de folios homogéneos
         df_antropo = self.estandarizar_clave_folio(df_antropo)
         df_salud = self.estandarizar_clave_folio(df_salud)
         df_alimentos = self.estandarizar_clave_folio(df_alimentos)
@@ -131,7 +129,7 @@ class EnsanutDataPipeline:
 
         logging.info("Ejecutando cruce de vectores de infraestructura...")
         try:
-            # Integración de Infraestructura Primaria
+            # Integración de infraestructura primaria
             df_unido = pd.merge(df_salud, df_antropo, on='FOLIO_I', how='inner', suffixes=('', '_ANTRO'))
             df_unido = pd.merge(df_unido, df_alimentos, on='FOLIO_I', how='left', suffixes=('', '_ALIM'))
             df_unido = pd.merge(df_unido, df_hemo, on='FOLIO_I', how='left', suffixes=('', '_HEMO'))
@@ -143,7 +141,7 @@ class EnsanutDataPipeline:
 
         logging.info(f"Unión consolidada. Registros estables: {len(df_unido)}")
         
-        # Extracción y Normalización de Variables Críticas Biológicas
+        # Extracción y Normalización de variables críticas biológicas
         df_modelo = df_unido.copy()
         df_modelo['imc'] = self.limpiar_series_numericas(df_modelo, 'IMC')
         df_modelo['sistolica'] = self.limpiar_series_numericas(df_modelo, 'AN27_01S')
@@ -158,7 +156,7 @@ class EnsanutDataPipeline:
         # Búsqueda adaptativa de Sexo (1: Hombre, 2: Mujer)
         df_modelo['sexo'] = self.limpiar_series_numericas(df_modelo, 'SEXO').fillna(self.limpiar_series_numericas(df_modelo, 'H0301')).fillna(1)
 
-        # Filtros de Calidad Biológica y Eliminación de Códigos de Error (999/800+)
+        # Filtros y eliminación de códigos de error
         df_modelo = df_modelo[df_modelo['imc'].between(10, 80)].dropna(subset=['imc', 'diabetes']).copy()
         df_modelo.loc[df_modelo['sistolica'] > 300, 'sistolica'] = np.nan
         df_modelo.loc[df_modelo['diastolica'] > 200, 'diastolica'] = np.nan
@@ -167,11 +165,11 @@ class EnsanutDataPipeline:
         if 'FOLIO_I' in df_modelo.columns:
             df_modelo = df_modelo.drop_duplicates(subset=['FOLIO_I'])
 
-        # Feature Engineering Avanzado (Indicadores de Presión)
+        # Feature Engineering Avanzado
         df_modelo['presion_pulso'] = df_modelo['sistolica'] - df_modelo['diastolica']
         df_modelo['riesgo_edad_imc'] = df_modelo['edad'] * df_modelo['imc']
 
-        # Almacenamiento Profesional del Dataset Preparado
+        # Almacenamiento del dataset preparado
         ruta_salida = os.path.join(self.directorio_datos, 'base_preparada_samsung.csv')
         df_modelo[['FOLIO_I', 'sexo', 'edad', 'imc', 'sistolica', 'diastolica', 'presion_pulso', 'riesgo_edad_imc', 'diabetes']].to_csv(ruta_salida, index=False)
         logging.info(f"Matriz Analítica Guardada de forma exitosa en: {ruta_salida}")
@@ -190,13 +188,13 @@ def entrenar_modelos_clasificacion(df: pd.DataFrame):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0, stratify=y)
 
-    # Configuración de Pipelines Robustos con Imputación y Escalado Automático
+    # Configuración de pipelines robustos con imputación y escalado automático
     preprocessor = ColumnTransformer(transformers=[
         ('num', Pipeline([('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]), ['edad', 'imc', 'sistolica', 'diastolica']),
         ('cat', Pipeline([('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))]), ['sexo'])
     ])
 
-    # --- TORNEO MODELO 1: RANDOM FOREST OPTIMIZADO ---
+    # Random Forest
     pipeline_rf = Pipeline([('preprocessor', preprocessor), ('classifier', RandomForestClassifier(random_state=0, n_jobs=-1, class_weight='balanced'))])
     param_grid_rf = {
         'classifier__n_estimators': [100, 200],
@@ -209,7 +207,7 @@ def entrenar_modelos_clasificacion(df: pd.DataFrame):
     logging.info("Optimizando hiperparámetros de Random Forest...")
     grid_rf.fit(X_train, y_train)
     
-    # --- EVALUACIÓN GENERAL DE RENDIMIENTO ---
+    # Evaluación general de rendimiento
     best_model = grid_rf.best_estimator_
     y_pred = best_model.predict(X_test)
     logging.info("\n" + "="*40 + "\nREPORTE DE CLASIFICACIÓN FINAL (RF)\n" + "="*40)
@@ -232,7 +230,6 @@ def segmentar_poblacion_kmeans(df: pd.DataFrame):
 
 
 if __name__ == "__main__":
-    # Instanciar orquestador e iniciar ejecución del motor analítico de producción
     pipeline = EnsanutDataPipeline(ruta_datos="data")
     df_maestro = pipeline.construir_matriz_maestra()
     
